@@ -8,7 +8,9 @@ identifiers.
 Distinct from :mod:`openjarvis.telemetry`, which stores local FLOPs and
 energy metrics in a SQLite DB and never leaves the machine.
 
-Disable: set ``[analytics] enabled = false`` in ``~/.openjarvis/config.toml``.
+Disabled by default. Enable explicitly with ``jarvis config set
+analytics.enabled true`` or ``[analytics] enabled = true`` in
+``~/.openjarvis/config.toml``.
 """
 
 from openjarvis.analytics.aggregator import SessionAggregator

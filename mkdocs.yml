@@ -193,7 +193,8 @@ nav:
       - Memory: user-guide/memory.md
       - External MCP Servers: user-guide/mcp-external-servers.md
       - Scheduler: user-guide/scheduler.md
-      - Telemetry: user-guide/telemetry.md
+      - Local Telemetry: user-guide/telemetry.md
+      - Anonymous Analytics: telemetry.md
       - Evaluations: user-guide/evaluations.md
       - Benchmarks: user-guide/benchmarks.md
       - Security: user-guide/security.md

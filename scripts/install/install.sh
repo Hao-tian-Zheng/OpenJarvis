@@ -8,6 +8,7 @@
 #   --no-bg-orchestrator   Skip the detached background orchestrator
 #   --minimal              Skip foreground model pull (no `qwen3.5:2b`)
 #   --force                Re-run all steps even if state file says done
+#   --analytics            Opt in to anonymous external analytics
 #
 # Environment overrides:
 #   OPENJARVIS_HOME        Install dir (default: $HOME/.openjarvis)
@@ -20,11 +21,13 @@ set -euo pipefail
 SKIP_BG=0
 MINIMAL=0
 FORCE=0
+ANALYTICS=0
 for arg in "$@"; do
     case "$arg" in
         --no-bg-orchestrator) SKIP_BG=1 ;;
         --minimal) MINIMAL=1 ;;
         --force) FORCE=1 ;;
+        --analytics) ANALYTICS=1 ;;
         *) echo "install.sh: unknown arg: $arg" >&2; exit 2 ;;
     esac
 done
@@ -250,7 +253,7 @@ INSTALL_START_EPOCH="$(date +%s)"
 CURRENT_STAGE=""
 
 analytics_enabled() {
-    return 0
+    [[ "$ANALYTICS" -eq 1 ]]
 }
 
 detect_os() {
@@ -601,6 +604,12 @@ write_config() {
         --prefer-cloud-when-available
 }
 
+persist_analytics_opt_in() {
+    if [[ "$ANALYTICS" -eq 1 ]]; then
+        "$VENV_DIR/bin/jarvis" config set analytics.enabled true
+    fi
+}
+
 install_symlinks() {
     mkdir -p "$HOME/.local/bin"
     ln -sf "$SCRIPTS_DIR/jarvis-wrapper.sh" "$HOME/.local/bin/jarvis"
@@ -681,6 +690,9 @@ step install_ollama     "Install Ollama"        install_ollama
 step start_ollama       "Start Ollama daemon"   start_ollama
 step pull_default_model "Pull qwen3.5:2b"       pull_default_model
 step write_config       "Write config.toml"     write_config
+# This is intentionally outside step(): an idempotent re-run may skip every
+# installation step, but an explicit --analytics choice must still be saved.
+persist_analytics_opt_in
 step install_symlinks   "Install symlinks"      install_symlinks
 step ensure_path        "Ensure PATH"           ensure_path
 step detach_bg_orchestrator "Detach background work" detach_bg_orchestrator

@@ -43,7 +43,7 @@ export function OptInModal({ onClose }: OptInModalProps) {
     setJoined(true);
   };
 
-  const handleOptOut = () => {
+  const handleLeaveLeaderboard = () => {
     setOptIn(false, '', '');
     setJoined(false);
     onClose();
@@ -130,6 +130,22 @@ export function OptInModal({ onClose }: OptInModalProps) {
             ))}
           </div>
 
+          <p
+            className="text-xs text-center mb-5 leading-relaxed"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
+            This setting controls only the Savings Leaderboard.{' '}
+            <a
+              href="https://open-jarvis.github.io/OpenJarvis/telemetry/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              Anonymous analytics
+            </a>{' '}
+            are managed separately.
+          </p>
+
           {/* Success state */}
           {joined ? (
             <div className="text-center">
@@ -157,11 +173,11 @@ export function OptInModal({ onClose }: OptInModalProps) {
                   Done
                 </button>
                 <button
-                  onClick={handleOptOut}
+                  onClick={handleLeaveLeaderboard}
                   className="px-5 py-2.5 rounded-xl text-sm transition-colors cursor-pointer"
                   style={{ color: 'var(--color-text-tertiary)' }}
                 >
-                  Opt Out
+                  Leave Leaderboard
                 </button>
               </div>
             </div>

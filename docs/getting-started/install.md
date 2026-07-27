@@ -18,6 +18,17 @@ The bash and PowerShell installers do the same thing on their respective hosts. 
 curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 ```
 
+External anonymous analytics are off by default. To explicitly share anonymous
+install progress and enable future runtime analytics, add `--analytics`:
+
+```bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash -s -- --analytics
+```
+
+See [Anonymous Analytics](../telemetry.md) for the exact event list and how to
+change this choice later. Local performance and energy telemetry stays on your
+computer and is unaffected.
+
 The installer downloads everything for you — including [uv](https://docs.astral.sh/uv/)
 (the Python package manager), the Python venv, Ollama, and a small starter
 model. **You don't need to install uv or any other prerequisite first.**
@@ -78,6 +89,7 @@ Local-first remains the default when no key is in env. Precedence is OpenRouter 
 | `--minimal` | Skip the foreground model pull. First chat will need to wait for the bg pull to finish. |
 | `--no-bg-orchestrator` | Don't detach the background work pipeline. (Mostly for testing.) |
 | `--force` | Re-run all steps even if `install-state.json` says they're done. |
+| `--analytics` | Opt in to anonymous install and runtime analytics. Off when omitted. |
 
 ## Environment overrides
 

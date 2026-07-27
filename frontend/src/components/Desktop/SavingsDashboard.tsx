@@ -365,7 +365,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
     setShowOptIn(false);
   };
 
-  const handleOptOut = () => {
+  const handleLeaveLeaderboard = () => {
     localStorage.removeItem(OPTIN_KEY);
     localStorage.removeItem(OPTIN_NAME_KEY);
     localStorage.removeItem(OPTIN_EMAIL_KEY);
@@ -422,8 +422,20 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: colors.text }}>
             Share Your Savings
           </div>
-          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 6, lineHeight: 1.5 }}>
             Opt in to privately share your savings for the chance to win a Mac Mini!
+          </div>
+          <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
+            This controls only the Savings Leaderboard.{' '}
+            <a
+              href="https://open-jarvis.github.io/OpenJarvis/telemetry/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: colors.accent, textDecoration: 'none' }}
+            >
+              Anonymous analytics
+            </a>{' '}
+            are managed separately.
           </div>
           <div style={{ marginBottom: 8 }}>
             <input
@@ -505,7 +517,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
             </button>
             {optInEnabled && (
               <button
-                onClick={handleOptOut}
+                onClick={handleLeaveLeaderboard}
                 style={{
                   padding: '8px 14px',
                   borderRadius: 8,
@@ -517,7 +529,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
                   marginLeft: 'auto',
                 }}
               >
-                Opt Out
+                Leave Leaderboard
               </button>
             )}
           </div>

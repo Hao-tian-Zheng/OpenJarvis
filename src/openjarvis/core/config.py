@@ -1063,7 +1063,7 @@ class AnalyticsConfig:
     or hardware identifiers are ever sent. See ``docs/telemetry.md``.
     """
 
-    enabled: bool = True
+    enabled: bool = False
     host: str = "https://34.231.106.201.sslip.io"
     key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
     anon_id_path: str = field(default_factory=lambda: str(get_config_dir() / "anon_id"))
@@ -1943,6 +1943,9 @@ default_agent = "simple"
 
 [tools]
 enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
+
+[analytics]
+enabled = false
 """
 
 
@@ -2081,6 +2084,9 @@ policy = "heuristic"
 enabled = true
 # gpu_metrics = false
 # gpu_poll_interval_ms = 50
+
+[analytics]
+enabled = false
 
 [traces]
 enabled = false

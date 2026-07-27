@@ -455,6 +455,26 @@ db_path = "~/.openjarvis/telemetry.db"
 
 ---
 
+### `[analytics]` — External Anonymous Analytics
+
+Controls anonymous usage events sent to the OpenJarvis team's PostHog instance.
+This is independent of the local `[telemetry]` database and the Savings
+Leaderboard.
+
+```toml
+[analytics]
+enabled = false
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Whether to send allowlisted anonymous usage events. No analytics ID or connection is created while disabled. |
+
+See [Anonymous Analytics](../telemetry.md) for the exact event list, privacy
+guardrails, and opt-in instructions.
+
+---
+
 ### `[traces]` — Trace Recording
 
 Controls the trace system that records full interaction sequences for the learning system.

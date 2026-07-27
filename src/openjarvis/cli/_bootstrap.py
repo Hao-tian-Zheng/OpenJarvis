@@ -158,6 +158,9 @@ def write_initial_config(
         f"[tools]\n"
         f'enabled = ["code_interpreter", "web_search", '
         f'"file_read", "shell_exec"]\n'
+        f"\n"
+        f"[analytics]\n"
+        f"enabled = false\n"
     )
 
     _cfg.DEFAULT_CONFIG_PATH.write_text(base_toml)

@@ -16,10 +16,12 @@ setup() {
     export OLLAMA_STUB_LOG="$TEST_TMPDIR/ollama.log"
     export UV_STUB_LOG="$TEST_TMPDIR/uv.log"
     export CURL_STUB_LOG="$TEST_TMPDIR/curl.log"
+    export JARVIS_STUB_LOG="$TEST_TMPDIR/jarvis.log"
     : > "$GIT_STUB_LOG"
     : > "$OLLAMA_STUB_LOG"
     : > "$UV_STUB_LOG"
     : > "$CURL_STUB_LOG"
+    : > "$JARVIS_STUB_LOG"
 
     # uv stub needs to fake creating a venv with a jarvis binary.
     # Replace the stubs/uv with one that creates the venv tree on `venv` command.
@@ -46,6 +48,7 @@ case "\$1" in
             cat > "\$venv_path/bin/jarvis" <<'EOJ'
 #!/usr/bin/env bash
 # fake jarvis for tests
+echo "\$@" >> "\$JARVIS_STUB_LOG"
 echo "fake jarvis: \$@"
 exit 0
 EOJ
@@ -123,6 +126,32 @@ IDEOF
     run bash "$SCRIPT" --no-bg-orchestrator
     [ "$status" -eq 0 ]
     ! grep -q "clone" "$GIT_STUB_LOG"
+}
+
+@test "external analytics is off by default" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    [ ! -e "$OPENJARVIS_HOME/anon_id" ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    ! grep -q '^config set analytics.enabled true$' "$JARVIS_STUB_LOG"
+}
+
+@test "--analytics opts into install and runtime analytics" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    [ -s "$OPENJARVIS_HOME/anon_id" ]
+    grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    grep -q '^config set analytics.enabled true$' "$JARVIS_STUB_LOG"
+}
+
+@test "--analytics persists opt-in when install steps are already complete" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    : > "$JARVIS_STUB_LOG"
+
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    grep -q '^config set analytics.enabled true$' "$JARVIS_STUB_LOG"
 }
 
 @test "detects WSL2 and writes platform note to install-state" {

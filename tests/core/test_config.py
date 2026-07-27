@@ -18,6 +18,7 @@ from openjarvis.core.config import (
     SecurityConfig,
     WhatsAppBaileysChannelConfig,
     generate_default_toml,
+    generate_minimal_toml,
     load_config,
     recommend_engine,
 )
@@ -29,6 +30,7 @@ class TestDefaults:
         assert cfg.engine.default == "ollama"
         assert cfg.memory.default_backend == "sqlite"
         assert cfg.telemetry.enabled is True
+        assert cfg.analytics.enabled is False
 
     def test_engine_config_defaults(self) -> None:
         ec = EngineConfig()
@@ -95,6 +97,14 @@ class TestTomlLoading:
         assert cfg.engine.default == "vllm"
         assert cfg.memory.default_backend == "faiss"
 
+    def test_explicit_analytics_opt_in_is_preserved(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text("[analytics]\nenabled = true\n")
+
+        cfg = load_config(toml_file)
+
+        assert cfg.analytics.enabled is True
+
     def test_loads_nested_lemonade_host_override(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
@@ -139,6 +149,12 @@ class TestGenerateToml:
         assert "[engine]" in toml
         assert 'default = "vllm"' in toml
         assert "H100" in toml
+
+    def test_generated_configs_disable_external_analytics(self) -> None:
+        hw = HardwareInfo(platform="linux")
+
+        for toml in (generate_minimal_toml(hw), generate_default_toml(hw)):
+            assert "[analytics]\nenabled = false" in toml
 
 
 class TestSecurityConfig:

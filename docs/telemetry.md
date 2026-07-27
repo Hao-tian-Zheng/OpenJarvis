@@ -1,18 +1,49 @@
-# Telemetry
+# Anonymous Analytics
 
-OpenJarvis ships **anonymous usage telemetry** by default so the team can
-see where the product breaks, what features people actually use, and
-how to make it better. This page documents exactly what is and isn't
-collected, where the data goes, and how to opt out.
+OpenJarvis can send anonymous usage events to help the team see where the
+product breaks and which features are useful. External analytics are **off by
+default**. Until you explicitly opt in, OpenJarvis does not create an analytics
+identifier, connect to PostHog, or send these events.
+
+This is separate from [local telemetry](user-guide/telemetry.md), which records
+performance and energy metrics only on your computer, and from the voluntary
+[Savings Leaderboard](leaderboard.md).
 
 ## TL;DR
 
-- **On by default**, anonymous, no chat content.
+- **Off by default**. Nothing is sent unless you explicitly opt in.
 - **Anonymous** — one random UUID per install, no email, no name, no IP.
 - **No chat content, ever.** Only counts, timings, and feature names.
-- **Self-hosted backend** on the OpenJarvis team's PostHog instance —
-  data is not sold or shared with third parties.
+- **OpenJarvis PostHog project** — see [Where the data goes](#where-the-data-goes)
+  for the current hosting details. Data is not sold or shared with advertisers.
 - **365-day retention**, after which events are deleted automatically.
+
+## Choose whether to share
+
+### During installation
+
+The normal installer keeps external analytics off. To opt in to both install
+events and future runtime events, pass `--analytics` explicitly:
+
+```bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash -s -- --analytics
+```
+
+### After installation
+
+You can change the setting at any time:
+
+```bash
+# Opt in
+jarvis config set analytics.enabled true
+
+# Opt out again
+jarvis config set analytics.enabled false
+```
+
+Upgrades and ordinary installer re-runs do not overwrite an existing explicit
+choice. Turning analytics off stops future events; it does not delete local
+telemetry, leaderboard participation, or previously collected analytics data.
 
 ## What we collect
 
@@ -92,10 +123,11 @@ dropped. Tests covering the patterns: [`tests/analytics/test_redaction.py`](../t
 
 ## How identity works
 
-A single UUID v4 is generated on first install and stored at
-`~/.openjarvis/anon_id`. The install script, backend, and frontend all
-read the same file so events across the full lifecycle tie to one
-person — without us ever knowing who that person is.
+A UUID v4 is generated only after analytics are enabled and stored at
+`~/.openjarvis/anon_id`. The installer, backend, and frontend all read the same
+file so opted-in events across the full lifecycle tie to one anonymous install.
+When analytics are disabled, the file is not created just by starting
+OpenJarvis.
 
 Delete the file (`rm ~/.openjarvis/anon_id`) and a fresh UUID will be
 generated next time the app runs. The previous UUID and its events
@@ -121,4 +153,5 @@ are then orphaned.
 - The leaderboard / contest opt-in (`OptInModal.tsx`) is a separate,
   voluntary feature that publicly shares your energy and savings on
   the OpenJarvis leaderboard. It is **not** the same as analytics and
-  requires explicit opt-in with a display name and email.
+  requires explicit opt-in with a display name and email. Choosing
+  **Leave Leaderboard** changes only leaderboard participation.

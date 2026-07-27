@@ -29,6 +29,7 @@ def test_writes_minimal_local_config(tmp_openjarvis_home: Path) -> None:
     assert data["engine"]["default"] == "ollama"
     assert data["intelligence"]["default_model"] == "qwen3.5:2b"
     assert data["agent"]["default_agent"] == "simple"
+    assert data["analytics"]["enabled"] is False
 
 
 def test_writes_cloud_config(tmp_openjarvis_home: Path) -> None:

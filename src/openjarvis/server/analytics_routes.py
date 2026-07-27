@@ -1,10 +1,11 @@
 """Small router exposing the anonymous analytics identity to the frontend.
 
-The Tauri desktop app and web frontend need the same ``anon_id`` that
-the backend and install.sh use so that all events tie to one person.
-This endpoint returns that ID (generating it on first call) plus the
-public PostHog project key and host so the frontend can initialise
-``posthog-js`` against the same project.
+When analytics are enabled, the Tauri desktop app and web frontend need the
+same ``anon_id`` that the backend and install.sh use so that all events tie to
+one anonymous install. This endpoint returns that ID (generating it on the
+first enabled call) plus the public PostHog project key and host so the
+frontend can initialise ``posthog-js`` against the same project. When
+analytics are disabled, it returns an empty identity without creating one.
 
 Public API — no auth required because the data returned is exactly
 what the frontend would ship to PostHog anyway. The project key is

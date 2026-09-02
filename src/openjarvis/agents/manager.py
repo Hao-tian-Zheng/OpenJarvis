@@ -311,7 +311,8 @@ class AgentManager:
     def end_tick(self, agent_id: str) -> None:
         self._conn.execute(
             "UPDATE managed_agents SET status = 'idle', "
-            "current_activity = '', updated_at = ? WHERE id = ?",
+            "current_activity = '', updated_at = ? "
+            "WHERE id = ? AND status = 'running'",
             (time.time(), agent_id),
         )
         self._conn.commit()

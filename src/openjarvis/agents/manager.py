@@ -295,18 +295,53 @@ class AgentManager:
         without any update is treated as a zombie left by a dead worker and
         overtaken rather than refused — otherwise a crash with no server
         around to sweep it would wedge the agent forever.
+
+        The state transition is a single conditional SQLite update.  The
+        read-before-write approach is racy when two workers start together:
+        both can observe ``idle`` and then mark the row ``running``.  The
+        conditional update lets SQLite choose exactly one winner, including
+        when workers use separate connections or processes.
         """
-        agent = self.get_agent(agent_id)
-        if agent and agent["status"] == "running":
-            age = time.time() - (agent.get("updated_at") or 0)
-            if age < self._STALE_TICK_SECONDS:
-                raise ValueError(f"Agent {agent_id} is already executing a tick")
-            logger.warning(
-                "Agent %s: overtaking stale tick lock (running, idle for %.0fs)",
-                agent_id,
-                age,
+        while True:
+            now = time.time()
+            stale_before = now - self._STALE_TICK_SECONDS
+            agent = self.get_agent(agent_id)
+            if agent is None:
+                return
+
+            was_stale = (
+                agent["status"] == "running"
+                and (agent.get("updated_at") or 0) <= stale_before
             )
-        self._set_status(agent_id, "running")
+            cursor = self._conn.execute(
+                "UPDATE managed_agents SET status = 'running', "
+                "updated_at = ? WHERE id = ? AND "
+                "(status != 'running' OR updated_at <= ?)",
+                (now, agent_id, stale_before),
+            )
+            self._conn.commit()
+            if cursor.rowcount:
+                if was_stale:
+                    age = time.time() - (agent.get("updated_at") or 0)
+                    logger.warning(
+                        "Agent %s: overtaking stale tick lock "
+                        "(running, idle for %.0fs)",
+                        agent_id,
+                        age,
+                    )
+                return
+
+            # Another connection acquired the lock after our read.  If that
+            # lock is still fresh, this caller loses; if it ended between the
+            # failed update and this read, retry so the caller never proceeds
+            # without owning the tick lock.
+            current = self.get_agent(agent_id)
+            if current is None:
+                return
+            if current["status"] == "running":
+                age = time.time() - (current.get("updated_at") or 0)
+                if age < self._STALE_TICK_SECONDS:
+                    raise ValueError(f"Agent {agent_id} is already executing a tick")
 
     def end_tick(self, agent_id: str) -> None:
         self._conn.execute(

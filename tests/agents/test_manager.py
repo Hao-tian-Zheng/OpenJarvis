@@ -435,3 +435,23 @@ class TestSchemaAndThreading:
         t.join(timeout=5)
         assert len(results) == 1
         assert results[0]["name"] == "threaded"
+
+    def test_concurrent_updates_are_serialized(self, manager):
+        """Concurrent updates on the shared manager connection must not be lost."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        agent = manager.create_agent(name="concurrent", agent_type="simple")
+        workers = 8
+        updates_per_worker = 20
+
+        def update_many():
+            for _ in range(updates_per_worker):
+                manager.update_agent(agent["id"], total_tokens_increment=1)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(update_many) for _ in range(workers)]
+            for future in futures:
+                future.result()
+
+        updated = manager.get_agent(agent["id"])
+        assert updated["total_tokens"] == workers * updates_per_worker

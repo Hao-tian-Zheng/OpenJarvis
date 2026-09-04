@@ -229,6 +229,22 @@ class TestConcurrency:
         assert refreshed["status"] == "running"
         assert refreshed["updated_at"] > stale_at
 
+    @pytest.mark.parametrize(
+        ("change_status", "expected_status"),
+        [("pause_agent", "paused"), ("delete_agent", "archived")],
+    )
+    def test_end_tick_preserves_user_status_change(
+        self, manager, change_status, expected_status
+    ):
+        """A late tick cleanup must not undo a user's pause or archive action."""
+        agent = manager.create_agent(name="lifecycle", agent_type="simple")
+        manager.start_tick(agent["id"])
+
+        getattr(manager, change_status)(agent["id"])
+        manager.end_tick(agent["id"])
+
+        assert manager.get_agent(agent["id"])["status"] == expected_status
+
 
 class TestCheckpoints:
     def test_save_checkpoint(self, manager):

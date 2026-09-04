@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re as _re
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openjarvis.agents.manager import AgentManager
 from openjarvis.agents.tool_resolver import (
@@ -852,12 +852,15 @@ async def _stream_managed_agent(
     engine: Any,
     bus: Any,
     app_state: Any = None,
+    on_complete: Optional[Callable[[], None]] = None,
 ) -> StreamingResponse:
     """Run a managed agent with real LLM token streaming via SSE.
 
     Uses ``engine.stream_full()`` to yield tokens as they arrive from the
     LLM. Supports multi-turn tool-calling: when the model emits tool_calls,
-    they are executed and the results fed back for the next turn.
+    they are executed and the results fed back for the next turn. When
+    ``on_complete`` is provided, it runs after either streaming branch has
+    finished its response-local cleanup.
     """
     import json
     import uuid
@@ -867,6 +870,15 @@ async def _stream_managed_agent(
     from openjarvis.core.types import Message, Role
 
     agent_id = agent_record["id"]
+
+    def _complete_stream() -> None:
+        if on_complete is None:
+            return
+        try:
+            on_complete()
+        except Exception:
+            logger.warning("Managed agent stream cleanup failed", exc_info=True)
+
     config = agent_record.get("config", {})
     # Resolve the model: prefer the agent's own config, then the server's
     # resolved model (app.state.model — what the engine was booted with),
@@ -1238,6 +1250,7 @@ async def _stream_managed_agent(
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                 },
+                background=BackgroundTask(_complete_stream),
             )
 
     # The canonical resolver exposes the same live instances as OpenAI specs
@@ -1306,7 +1319,10 @@ async def _stream_managed_agent(
         try:
             _persist_final()
         finally:
-            resolved_toolkit.close()
+            try:
+                resolved_toolkit.close()
+            finally:
+                _complete_stream()
 
     async def generate():
         """Async generator yielding SSE-formatted chunks with real token streaming."""
@@ -1991,8 +2007,29 @@ def create_agent_manager_router(
         ):
             manager.update_agent(agent_id, status="idle")
 
+        stream_tick_acquired = False
+        stream_engine = None
+        if req.stream:
+            stream_engine = getattr(request.app.state, "engine", None)
+            if stream_engine is not None:
+                # Unlike the queued/immediate paths, streaming runs directly
+                # in the request, so it must acquire the same tick guard here.
+                try:
+                    manager.start_tick(agent_id)
+                    stream_tick_acquired = True
+                except ValueError:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Agent is already running",
+                    )
+
         # Store user message in DB (always, regardless of stream mode)
-        msg = manager.send_message(agent_id, req.content, mode=req.mode)
+        try:
+            msg = manager.send_message(agent_id, req.content, mode=req.mode)
+        except Exception:
+            if stream_tick_acquired:
+                manager.end_tick(agent_id)
+            raise
 
         if not req.stream and req.mode != "immediate":
             return msg
@@ -2072,7 +2109,7 @@ def create_agent_manager_router(
             return msg
 
         # --- Streaming mode: run agent and return SSE response ---
-        engine = getattr(request.app.state, "engine", None)
+        engine = stream_engine
         bus = getattr(request.app.state, "bus", None)
         if engine is None:
             raise HTTPException(
@@ -2080,15 +2117,21 @@ def create_agent_manager_router(
                 detail="Engine not available for streaming",
             )
 
-        return await _stream_managed_agent(
-            manager=manager,
-            agent_record=agent_record,
-            user_content=req.content,
-            message_id=msg["id"],
-            engine=engine,
-            bus=bus,
-            app_state=request.app.state,
-        )
+        try:
+            return await _stream_managed_agent(
+                manager=manager,
+                agent_record=agent_record,
+                user_content=req.content,
+                message_id=msg["id"],
+                engine=engine,
+                bus=bus,
+                app_state=request.app.state,
+                on_complete=lambda: manager.end_tick(agent_id),
+            )
+        except Exception:
+            if stream_tick_acquired:
+                manager.end_tick(agent_id)
+            raise
 
     # ── State inspection ─────────────────────────────────────
 

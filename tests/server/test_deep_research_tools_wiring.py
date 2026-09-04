@@ -181,6 +181,7 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     manager = MagicMock()
     manager.list_messages.return_value = []
     engine = _ScriptedDeepResearchEngine()
+    on_complete = MagicMock()
 
     response = await routes._stream_managed_agent(
         manager=manager,
@@ -199,11 +200,15 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
         engine=engine,
         bus=None,
         app_state=app_state,
+        on_complete=on_complete,
     )
 
     body_parts: list[str] = []
     async for part in response.body_iterator:
         body_parts.append(part.decode() if isinstance(part, bytes) else part)
+    assert response.background is not None
+    await response.background()
+    on_complete.assert_called_once_with()
 
     expected_names = {
         _ConfiguredResearchProbe.tool_id,

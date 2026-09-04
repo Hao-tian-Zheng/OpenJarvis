@@ -312,6 +312,7 @@ class AgentManager:
 
     # ── Tick concurrency guard ────────────────────────────────────
 
+    @_db_locked
     def start_tick(self, agent_id: str) -> None:
         """Mark agent as running. Raises ValueError if already running.
 

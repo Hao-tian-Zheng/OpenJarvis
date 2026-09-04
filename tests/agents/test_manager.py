@@ -214,6 +214,67 @@ class TestConcurrency:
             first.close()
             second.close()
 
+    def test_start_tick_serializes_its_uncommitted_update(self, manager):
+        """Shared-connection callers cannot observe or commit a partial tick."""
+        agent = manager.create_agent(name="pending-tick", agent_type="simple")
+        original_connection = manager._conn
+        update_pending = threading.Event()
+        allow_commit = threading.Event()
+        reader_started = threading.Event()
+        reader_finished = threading.Event()
+
+        class PausedCommit:
+            def __getattr__(self, name):
+                return getattr(original_connection, name)
+
+            def commit(self):
+                update_pending.set()
+                assert allow_commit.wait(5)
+                return original_connection.commit()
+
+        manager._conn = PausedCommit()
+
+        def read_agent():
+            reader_started.set()
+            try:
+                return manager.get_agent(agent["id"])
+            finally:
+                reader_finished.set()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            tick = pool.submit(manager.start_tick, agent["id"])
+            assert update_pending.wait(5)
+            reader = pool.submit(read_agent)
+            assert reader_started.wait(5)
+            try:
+                assert not reader_finished.wait(0.1), "tick leaked uncommitted state"
+            finally:
+                allow_commit.set()
+            tick.result(timeout=5)
+            assert reader.result(timeout=5)["status"] == "running"
+
+    def test_parallel_ticks_on_distinct_agents_share_one_connection(self, manager):
+        """Independent agents must not interfere through SQLite transactions."""
+        agents = [
+            manager.create_agent(name=f"parallel-{index}", agent_type="simple")
+            for index in range(8)
+        ]
+        ready = threading.Barrier(len(agents))
+
+        def tick_many(agent):
+            ready.wait(timeout=5)
+            for _ in range(50):
+                manager.start_tick(agent["id"])
+                manager.end_tick(agent["id"])
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as pool:
+            futures = [pool.submit(tick_many, agent) for agent in agents]
+            for future in futures:
+                future.result(timeout=10)
+        assert all(
+            manager.get_agent(agent["id"])["status"] == "idle" for agent in agents
+        )
+
     def test_start_tick_overtakes_stale_lock(self, manager):
         agent = manager.create_agent(name="stale", agent_type="simple")
         stale_at = time.time() - manager._STALE_TICK_SECONDS - 1

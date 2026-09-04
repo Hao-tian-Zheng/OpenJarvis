@@ -871,9 +871,15 @@ async def _stream_managed_agent(
 
     agent_id = agent_record["id"]
 
+    completion_lock = threading.Lock()
+    completion_called = False
+
     def _complete_stream() -> None:
-        if on_complete is None:
-            return
+        nonlocal completion_called
+        with completion_lock:
+            if completion_called or on_complete is None:
+                return
+            completion_called = True
         try:
             on_complete()
         except Exception:
@@ -962,6 +968,16 @@ async def _stream_managed_agent(
     if agent_type == "deep_research":
         dr_tools = resolved_toolkit.instances
         if dr_tools:
+            worker_owns_tick = threading.Event()
+
+            def _complete_research_response() -> None:
+                # A disconnected/timed-out response cannot release a tick
+                # while its synchronous research worker is still executing.
+                if not worker_owns_tick.is_set():
+                    try:
+                        resolved_toolkit.close()
+                    finally:
+                        _complete_stream()
 
             async def generate_deep_research():
                 """Run DeepResearchAgent in thread, stream progress + result."""
@@ -1103,14 +1119,22 @@ async def _stream_managed_agent(
                         }
                     )
 
+                def _run_with_tick_cleanup():
+                    try:
+                        _run_agent()
+                    finally:
+                        _complete_stream()
+
+                worker_owns_tick.set()
                 try:
                     _start_managed_worker(
                         app_state,
-                        _run_agent,
+                        _run_with_tick_cleanup,
                         name=f"managed-agent-deep-research-{agent_id}",
                     )
                 except Exception as exc:
-                    resolved_toolkit.close()
+                    worker_owns_tick.clear()
+                    _complete_research_response()
                     progress_q.put(
                         {
                             "type": "error",
@@ -1243,14 +1267,21 @@ async def _stream_managed_agent(
                         )
                         break
 
+            async def guarded_deep_research():
+                try:
+                    async for chunk in generate_deep_research():
+                        yield chunk
+                finally:
+                    _complete_research_response()
+
             return StreamingResponse(
-                generate_deep_research(),
+                guarded_deep_research(),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                 },
-                background=BackgroundTask(_complete_stream),
+                background=BackgroundTask(_complete_research_response),
             )
 
     # The canonical resolver exposes the same live instances as OpenAI specs

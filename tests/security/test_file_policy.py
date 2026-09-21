@@ -9,6 +9,16 @@ import pytest
 from openjarvis.security.file_policy import filter_sensitive_paths, is_sensitive_file
 
 
+@pytest.fixture(params=["default", "python"])
+def policy_backend(request, monkeypatch):
+    if request.param == "python":
+
+        def unavailable():
+            raise ImportError("exercise the Python fallback")
+
+        monkeypatch.setattr("openjarvis._rust_bridge.get_rust_module", unavailable)
+
+
 class TestIsSensitiveFile:
     def test_sensitive_env(self) -> None:
         assert is_sensitive_file(".env") is True
@@ -94,8 +104,87 @@ class TestIsSensitiveFile:
 
         assert is_sensitive_file(alias) is True
 
+    @pytest.mark.parametrize(
+        "sensitive_name", [".env", "credentials.json", "server.pem"]
+    )
+    @pytest.mark.parametrize("target_exists", [True, False])
+    def test_sensitive_symlink_name_to_ordinary_target(
+        self, tmp_path: Path, sensitive_name: str, target_exists: bool, policy_backend
+    ) -> None:
+        target = tmp_path / "notes.txt"
+        if target_exists:
+            target.write_text("SENSITIVE-SENTINEL", encoding="utf-8")
+        alias = tmp_path / sensitive_name
+        try:
+            alias.symlink_to(target.name)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is True
+
+    @pytest.mark.parametrize("target_name", [".env", "notes.txt"])
+    @pytest.mark.parametrize("target_exists", [True, False])
+    def test_relative_symlink_chain(
+        self, tmp_path: Path, target_name: str, target_exists: bool, policy_backend
+    ) -> None:
+        target = tmp_path / target_name
+        if target_exists:
+            target.write_text("SENTINEL", encoding="utf-8")
+        intermediate = tmp_path / "intermediate.txt"
+        alias = tmp_path / "alias.txt"
+        try:
+            intermediate.symlink_to(target.name)
+            alias.symlink_to(intermediate.name)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is (target_name == ".env")
+
+    def test_sensitive_symlink_loop(self, tmp_path: Path, policy_backend) -> None:
+        alias = tmp_path / ".env"
+        try:
+            alias.symlink_to(alias.name)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is True
+
+    @pytest.mark.parametrize("target_exists", [True, False])
+    def test_sensitive_intermediate_symlink_to_ordinary_target(
+        self, tmp_path: Path, target_exists: bool, policy_backend
+    ) -> None:
+        target = tmp_path / "notes.txt"
+        if target_exists:
+            target.write_text("SENTINEL", encoding="utf-8")
+        intermediate = tmp_path / ".env"
+        alias = tmp_path / "alias.txt"
+        try:
+            intermediate.symlink_to(target.name)
+            alias.symlink_to(intermediate.name)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is True
+
 
 class TestFilterSensitivePaths:
+    def test_filter_sensitive_aliases(self, tmp_path: Path, policy_backend) -> None:
+        target = tmp_path / "notes.txt"
+        target.write_text("SENTINEL", encoding="utf-8")
+        protected_alias = tmp_path / ".env"
+        ordinary_alias = tmp_path / "alias.txt"
+        secret = tmp_path / "server.pem"
+        secret.write_text("SENTINEL", encoding="utf-8")
+        try:
+            protected_alias.symlink_to(target.name)
+            ordinary_alias.symlink_to(secret.name)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert filter_sensitive_paths([protected_alias, ordinary_alias, target]) == [
+            target
+        ]
+
     def test_filter_sensitive_paths(self) -> None:
         paths = [
             "main.py",

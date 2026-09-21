@@ -89,10 +89,15 @@ class TestFileReadTool:
         assert result.success is False
         assert "sensitive" in result.content.lower()
 
-    def test_blocks_symlink_alias_to_sensitive_file(self, tmp_path):
-        sensitive = tmp_path / ".env"
+    @pytest.mark.parametrize(
+        "alias_name,target_name", [("notes.txt", ".env"), (".env", "notes.txt")]
+    )
+    def test_blocks_symlink_alias_to_sensitive_file(
+        self, tmp_path, alias_name, target_name
+    ):
+        sensitive = tmp_path / target_name
         sensitive.write_text("SECRET=foo", encoding="utf-8")
-        alias = tmp_path / "notes.txt"
+        alias = tmp_path / alias_name
         try:
             alias.symlink_to(sensitive)
         except OSError:
@@ -102,6 +107,7 @@ class TestFileReadTool:
 
         assert result.success is False
         assert "sensitive" in result.content.lower()
+        assert "SECRET=foo" not in result.content
 
     def test_allows_normal_py_files(self, tmp_path):
         f = tmp_path / "main.py"

@@ -16,27 +16,16 @@ static SENSITIVE_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ])
 });
 
-static SENSITIVE_EXTENSIONS: Lazy<Vec<&'static str>> = Lazy::new(|| {
-    vec![
-        ".pem", ".key", ".p12", ".pfx", ".jks", ".secrets",
-    ]
-});
+static SENSITIVE_EXTENSIONS: Lazy<Vec<&'static str>> =
+    Lazy::new(|| vec![".pem", ".key", ".p12", ".pfx", ".jks", ".secrets"]);
 
-static SENSITIVE_PREFIXES: Lazy<Vec<&'static str>> = Lazy::new(|| {
-    vec![".env.", "credentials."]
-});
+static SENSITIVE_PREFIXES: Lazy<Vec<&'static str>> = Lazy::new(|| vec![".env.", "credentials."]);
 
 /// Resolve a path for policy checks without requiring the final target to exist.
 ///
-/// `canonicalize` handles normal existing paths and symlink chains. When the
-/// final target does not exist (for example, a write through `notes.txt ->
-/// .env`), follow the link entries manually so the sensitive target name is
-/// still checked.
+/// Preserve sensitive intermediate names before canonicalizing, including
+/// dangling targets that `canonicalize` cannot resolve.
 fn path_for_policy(path: &Path) -> PathBuf {
-    if let Ok(resolved) = std::fs::canonicalize(path) {
-        return resolved;
-    }
-
     let mut candidate = path.to_path_buf();
     for _ in 0..40 {
         let Ok(target) = std::fs::read_link(&candidate) else {
@@ -50,14 +39,20 @@ fn path_for_policy(path: &Path) -> PathBuf {
                 .unwrap_or_else(|| Path::new(""))
                 .join(target)
         };
+        if matches_sensitive_name(&candidate) {
+            return candidate;
+        }
     }
-    candidate
+    std::fs::canonicalize(&candidate).unwrap_or(candidate)
 }
 
 /// Return `true` if path or its resolved target matches a sensitive pattern.
 pub fn is_sensitive_file(path: &Path) -> bool {
-    let checked_path = path_for_policy(path);
-    let name = match checked_path.file_name().and_then(|n| n.to_str()) {
+    matches_sensitive_name(path) || matches_sensitive_name(&path_for_policy(path))
+}
+
+fn matches_sensitive_name(path: &Path) -> bool {
+    let name = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n,
         None => return false,
     };
@@ -93,6 +88,119 @@ pub fn filter_sensitive_paths<'a>(paths: &'a [&'a Path]) -> Vec<&'a Path> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn symlink_file(target: &Path, alias: &Path) -> bool {
+        #[cfg(unix)]
+        let result = std::os::unix::fs::symlink(target, alias);
+        #[cfg(windows)]
+        let result = std::os::windows::fs::symlink_file(target, alias);
+        if let Err(error) = result {
+            #[cfg(windows)]
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                return false;
+            }
+            panic!("failed to create test symlink: {error}");
+        }
+        true
+    }
+
+    #[test]
+    fn test_sensitive_symlink_name_to_ordinary_target() {
+        for sensitive_name in [".env", "credentials.json", "server.pem"] {
+            for target_exists in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let target = dir.path().join("notes.txt");
+                if target_exists {
+                    std::fs::write(&target, "SENSITIVE-SENTINEL").unwrap();
+                }
+                let alias = dir.path().join(sensitive_name);
+                if !symlink_file(Path::new("notes.txt"), &alias) {
+                    return;
+                }
+
+                assert!(
+                    is_sensitive_file(&alias),
+                    "{sensitive_name}, exists={target_exists}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_relative_symlink_chain() {
+        for target_name in [".env", "notes.txt"] {
+            for target_exists in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let target = dir.path().join(target_name);
+                if target_exists {
+                    std::fs::write(&target, "SENTINEL").unwrap();
+                }
+                let intermediate = dir.path().join("intermediate.txt");
+                let alias = dir.path().join("alias.txt");
+                if !symlink_file(Path::new(target_name), &intermediate)
+                    || !symlink_file(Path::new("intermediate.txt"), &alias)
+                {
+                    return;
+                }
+
+                assert_eq!(is_sensitive_file(&alias), target_name == ".env");
+            }
+        }
+    }
+
+    #[test]
+    fn test_sensitive_intermediate_symlink_to_ordinary_target() {
+        for target_exists in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("notes.txt");
+            if target_exists {
+                std::fs::write(&target, "SENTINEL").unwrap();
+            }
+            let intermediate = dir.path().join(".env");
+            let alias = dir.path().join("alias.txt");
+            if !symlink_file(Path::new("notes.txt"), &intermediate)
+                || !symlink_file(Path::new(".env"), &alias)
+            {
+                return;
+            }
+
+            assert!(is_sensitive_file(&alias));
+        }
+    }
+
+    #[test]
+    fn test_sensitive_symlink_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let alias = dir.path().join(".env");
+        if !symlink_file(Path::new(".env"), &alias) {
+            return;
+        }
+
+        assert!(is_sensitive_file(&alias));
+    }
+
+    #[test]
+    fn test_filter_sensitive_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("notes.txt");
+        std::fs::write(&target, "SENTINEL").unwrap();
+        let protected_alias = dir.path().join(".env");
+        let ordinary_alias = dir.path().join("alias.txt");
+        let secret = dir.path().join("server.pem");
+        std::fs::write(&secret, "SENTINEL").unwrap();
+        if !symlink_file(Path::new("notes.txt"), &protected_alias)
+            || !symlink_file(Path::new("server.pem"), &ordinary_alias)
+        {
+            return;
+        }
+
+        let paths = [
+            protected_alias.as_path(),
+            ordinary_alias.as_path(),
+            target.as_path(),
+        ];
+        assert_eq!(filter_sensitive_paths(&paths), vec![target.as_path()]);
+    }
 
     #[test]
     fn test_sensitive_files() {

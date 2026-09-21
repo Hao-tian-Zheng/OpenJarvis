@@ -38,14 +38,15 @@ YOUCOM_API_KEY_ENV = "YOUDOTCOM_API_KEY"
 
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
 ENGINES = ("auto", "youcom", "tavily", "duckduckgo")
-_MAX_FETCH_REDIRECTS = 5
-_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
 YOUCOM_USER_AGENT = (
     f"openjarvis/{__version__} youdotcom-integration/open-jarvis-openjarvis"
 )
+
+_MAX_FETCH_REDIRECTS = 5
+_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 # Keyless tier exhaustion (402) and per-IP throttling (429) both mean "get a
 # key", which is a different remedy from a generic HTTP failure.
@@ -183,30 +184,32 @@ class WebSearchTool(BaseTool):
 
         url = WebSearchTool._normalize_url(url)
         current_url = url.strip()
-        for _ in range(_MAX_FETCH_REDIRECTS + 1):
-            ssrf_error = check_ssrf(current_url)
-            if ssrf_error:
-                raise ValueError(ssrf_error)
-            resp = httpx.get(
-                current_url,
-                follow_redirects=False,
-                timeout=30.0,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"
-                },
-            )
-            if resp.status_code not in _REDIRECT_STATUS_CODES:
-                resp.raise_for_status()
-                break
-            location = resp.headers.get("location", "")
-            if not location:
-                resp.raise_for_status()
-                break
-            current_url = urljoin(str(resp.url), location)
-        else:
-            raise ValueError(
-                f"URL exceeded the maximum of {_MAX_FETCH_REDIRECTS} redirects"
-            )
+        # One client preserves cookie scope across redirect hops. Its lifetime
+        # is limited to this fetch so unrelated requests do not share cookies.
+        with httpx.Client(
+            follow_redirects=False,
+            timeout=30.0,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"
+            },
+        ) as client:
+            for _ in range(_MAX_FETCH_REDIRECTS + 1):
+                ssrf_error = check_ssrf(current_url)
+                if ssrf_error:
+                    raise ValueError(ssrf_error)
+                resp = client.get(current_url)
+                if resp.status_code not in _REDIRECT_STATUS_CODES:
+                    resp.raise_for_status()
+                    break
+                location = resp.headers.get("location", "")
+                if not location:
+                    resp.raise_for_status()
+                    break
+                current_url = urljoin(str(resp.url), location)
+            else:
+                raise ValueError(
+                    f"URL exceeded the maximum of {_MAX_FETCH_REDIRECTS} redirects"
+                )
         content_type = resp.headers.get("content-type", "")
         if "application/pdf" in content_type:
             return (
